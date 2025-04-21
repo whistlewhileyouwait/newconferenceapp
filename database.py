@@ -3,9 +3,21 @@ from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
 import datetime
 import os
+from dotenv import load_dotenv   
+# Load environment variables from .env
+load_dotenv()
 
-# SQLite DB setup
-DATABASE_URL = "sqlite:///attendees.db"
+# Fetch from environment
+USER = os.getenv("user")
+PASSWORD = os.getenv("password")
+HOST = os.getenv("host")
+PORT = os.getenv("port")
+DBNAME = os.getenv("dbname")
+
+DATABASE_URL = f"postgresql+psycopg2://{USER}:{PASSWORD}@{HOST}:{PORT}/{DBNAME}?sslmode=require"
+engine = create_engine(DATABASE_URL)
+
+
 Base = declarative_base()
 
 class Attendee(Base):

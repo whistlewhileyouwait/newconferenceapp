@@ -60,8 +60,15 @@ def run_qr_scanner():
         data, bbox, _ = detector.detectAndDecode(gray)
 
         if data:
-            log_scan(data.strip())
-            st.success(f"✅ Scanned and checked in: {data.strip()}")
+            badge_id = data.strip()
+            log_scan(badge_id)
+
+            # 🔍 Look up the attendee by badge ID
+            attendees = get_all_attendees()
+            person = next((a for a in attendees if a.badge_id == badge_id), None)
+
+            if person:
+                st.success(f"✅ Scanned and checked in: {person.name}")
         else:
             st.warning("⚠ QR Code not recognized.")
 
