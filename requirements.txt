@@ -1,0 +1,7 @@
+streamlit
+sqlalchemy
+pandas
+numpy
+pyzbar
+Pillow
+opencv-python-headless
