@@ -5,6 +5,7 @@ from io import BytesIO
 import datetime
 import pandas as pd
 from PIL import Image
+from pyzbar.pyzbar import decode
 import numpy as np
 import cv2
 
@@ -55,16 +56,14 @@ def run_qr_scanner():
         img = Image.open(img_file)
         img = np.array(img.convert("RGB"))
         gray = cv2.cvtColor(img, cv2.COLOR_RGB2GRAY)
+        decoded = decode(gray)
 
-        detector = cv2.QRCodeDetector()
-        data, bbox, _ = detector.detectAndDecode(gray)
-
-        if data:
-            log_scan(data.strip())
-            st.success(f"✅ Scanned and checked in: {data.strip()}")
+        if decoded:
+            qr_data = decoded[0].data.decode("utf-8")
+            log_scan(qr_data)
+            st.success(f"✅ Scanned and checked in: {qr_data}")
         else:
             st.warning("⚠ QR Code not recognized.")
-
 
 def generate_ce_report():
     logs = get_scan_log()

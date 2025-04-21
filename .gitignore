@@ -1,0 +1,11 @@
+# Ignore the database file so we don't upload check-in data to GitHub
+attendees.db
+
+# Python cache and virtual environment files
+__pycache__/
+*.py[cod]
+.DS_Store
+*.env
+.env
+.venv/
+
