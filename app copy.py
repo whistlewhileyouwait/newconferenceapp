@@ -8,6 +8,7 @@ from PIL import Image
 from pyzbar.pyzbar import decode
 import numpy as np
 import cv2
+import os
 
 # --------------------------
 # ✅ CE Session Schedule

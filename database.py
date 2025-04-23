@@ -1,94 +1,100 @@
-from sqlalchemy import create_engine, Column, Integer, String, DateTime
-from sqlalchemy.ext.declarative import declarative_base
-from sqlalchemy.orm import sessionmaker
-import datetime
+# database.py
+
 import os
-from dotenv import load_dotenv   
-# Load environment variables from .env
+import datetime
+from dotenv import load_dotenv
+from supabase import create_client, Client
+
+# ─── Initialize Supabase client ─────────────────────────────────────────────
 load_dotenv()
-
-# Fetch from environment
-USER = os.getenv("user")
-PASSWORD = os.getenv("password")
-HOST = os.getenv("host")
-PORT = os.getenv("port")
-DBNAME = os.getenv("dbname")
-
-DATABASE_URL = f"postgresql+psycopg2://{USER}:{PASSWORD}@{HOST}:{PORT}/{DBNAME}?sslmode=require"
-engine = create_engine(DATABASE_URL)
+SUPABASE_URL = os.getenv("SUPABASE_URL")
+SUPABASE_KEY = os.getenv("SUPABASE_KEY")
+supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
 
-Base = declarative_base()
+# ─── Attendees ───────────────────────────────────────────────────────────────
+def register_attendee(badge_id: int, name: str, email: str):
+    """Insert a new attendee row into Supabase."""
+    supabase.table("attendees") \
+            .insert({"badge_id": badge_id, "name": name, "email": email}) \
+            .execute()
 
-class Attendee(Base):
-    __tablename__ = 'attendees'
-    id       = Column(Integer, primary_key=True)
-    badge_id = Column(String, unique=True, nullable=False)
-    name     = Column(String, nullable=False)
-    email    = Column(String, nullable=False)
-    scan1    = Column(DateTime, nullable=True)
-    scan2    = Column(DateTime, nullable=True)
-    scan3    = Column(DateTime, nullable=True)
-    scan4    = Column(DateTime, nullable=True)
-    scan5    = Column(DateTime, nullable=True)
-    scan6    = Column(DateTime, nullable=True)
-    scan7    = Column(DateTime, nullable=True)
-    scan8    = Column(DateTime, nullable=True)
-    scan9    = Column(DateTime, nullable=True)
-    scan10   = Column(DateTime, nullable=True)
-
-class ScanLog(Base):
-    __tablename__ = 'scanlog'
-    id        = Column(Integer, primary_key=True)
-    badge_id  = Column(String, nullable=False)
-    timestamp = Column(DateTime, default=datetime.datetime.utcnow)
-
-engine  = create_engine(DATABASE_URL, echo=False)
-Session = sessionmaker(bind=engine)
-session = Session()
-
-# Always create tables (picks up new columns on fresh DB)
-Base.metadata.create_all(engine)
-
-def register_attendee(badge_id, name, email):
-    try:
-        attendee = Attendee(badge_id=badge_id, name=name, email=email)
-        session.add(attendee)
-        session.commit()
-    except:
-        session.rollback()
-        raise
 
 def get_all_attendees():
-    return session.query(Attendee).all()
+    """Fetch all attendees from Supabase as a list of dicts."""
+    resp = supabase.table("attendees") \
+                   .select("*") \
+                   .order("badge_id", desc=False) \
+                   .execute()
+    return resp.data
 
-def log_scan(badge_id):
-    # 1) record the raw log entry
-    session.add(ScanLog(badge_id=badge_id))
-    session.commit()
 
-    # 2) fill the next empty scan slot on Attendee
-    attendee = session.query(Attendee).filter_by(badge_id=badge_id).first()
-    if not attendee:
+# ─── Scanning ────────────────────────────────────────────────────────────────
+def log_scan(badge_id: int):
+    """
+    1) Insert raw scan event into scanlog
+    2) Update next empty scanN column in attendees
+    """
+    badge = int(badge_id)
+    now_iso = datetime.datetime.utcnow().isoformat()
+
+    # 1) raw log
+    supabase.table("scanlog") \
+            .insert({"badge_id": badge, "timestamp": now_iso}) \
+            .execute()
+
+    # 2) fetch the attendee row
+    resp = supabase.table("attendees") \
+                   .select("*") \
+                   .eq("badge_id", badge) \
+                   .execute()
+    rows = resp.data
+    if not rows:
         return
 
-    now = datetime.datetime.now()
+    row = rows[0]
+    updates = {}
     for i in range(1, 11):
-        attr = f"scan{i}"
-        if getattr(attendee, attr) is None:
-            setattr(attendee, attr, now)
-            session.commit()
+        col = f"scan{i}"
+        if row.get(col) is None:
+            updates[col] = now_iso
             break
 
+    if updates:
+        supabase.table("attendees") \
+                .update(updates) \
+                .eq("badge_id", badge) \
+                .execute()
+
+
 def get_scan_log():
-    return (
-        session.query(
-            ScanLog.badge_id,
-            Attendee.name,
-            Attendee.email,
-            ScanLog.timestamp
-        )
-        .join(Attendee, Attendee.badge_id == ScanLog.badge_id)
-        .order_by(ScanLog.timestamp.desc())
-        .all()
-    )
+    """
+    Fetch every scan event, then look up each attendee’s name/email in Python.
+    Returns a list of dicts: { badge_id, name, email, timestamp }.
+    """
+    # 1) grab raw scan events
+    resp_scans = supabase.table("scanlog") \
+                        .select("*") \
+                        .order("timestamp", desc=True) \
+                        .execute()
+    scans = resp_scans.data  # list of { badge_id, timestamp, ... }
+
+    # 2) grab attendees and build a quick lookup
+    attendees = get_all_attendees()  # from database.py
+    attendee_map = { a["badge_id"]: a for a in attendees }
+
+    # 3) stitch them together
+    logs = []
+    for sc in scans:
+        bid = sc["badge_id"]
+        raw_ts = sc["timestamp"]
+        # parse to datetime for your generate_ce_report logic
+        ts = datetime.datetime.fromisoformat(raw_ts)
+        a = attendee_map.get(bid, {})
+        logs.append({
+            "badge_id": bid,
+            "name":      a.get("name", ""),
+            "email":     a.get("email", ""),
+            "timestamp": ts
+        })
+    return logs

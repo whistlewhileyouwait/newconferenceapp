@@ -2,7 +2,15 @@ streamlit
 sqlalchemy
 pandas
 numpy
-pyzbar
+Pillow
+opencv-python-headless
+qrcode
+psycopg2-binary
+st-supabase-connection
+streamlit
+sqlalchemy
+pandas
+numpy
 Pillow
 opencv-python-headless
 qrcode
