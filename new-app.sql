@@ -45,10 +45,10 @@ def create_badge_pdf(attendees):
                 c.showPage()
                 y_position = height - y_margin - BADGE_HEIGHT_INCH * inch
 
-        # Draw border
+        # Draw badge border
         c.rect(x_positions[col], y_position, BADGE_WIDTH_INCH * inch, BADGE_HEIGHT_INCH * inch)
 
-        # Draw text
+        # Draw name and info
         c.setFont("Helvetica-Bold", 14)
         c.drawString(x_positions[col] + 0.1*inch, y_position + BADGE_HEIGHT_INCH*inch - 0.4*inch, attendee['name'])
 
@@ -63,7 +63,7 @@ def create_badge_pdf(attendees):
         qr_buffer.seek(0)
         qr_reader = Image.open(qr_buffer)
 
-        # Draw QR code
+        # Draw QR code image
         qr_x = x_positions[col] + BADGE_WIDTH_INCH*inch/2 - 0.4*inch
         qr_y = y_position + 0.2*inch
         c.drawInlineImage(qr_reader, qr_x, qr_y, width=0.8*inch, height=0.8*inch)
