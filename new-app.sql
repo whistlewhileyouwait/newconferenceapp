@@ -1,150 +1,87 @@
 import streamlit as st
-import pandas as pd
-import datetime
 import qrcode
 from io import BytesIO
-import cv2
-import numpy as np
+import base64
+from database import get_all_attendees
+from reportlab.lib.pagesizes import letter
+from reportlab.pdfgen import canvas
+from reportlab.lib.units import inch
 from PIL import Image
-import os
 
-# File to store attendee data
-ATTENDEE_FILE = "attendees.csv"
+st.set_page_config(layout="wide")
+st.title("🪪 Printable Conference Badges (PDF Download)")
 
-# Function to load data from CSV
-def load_data():
-    if os.path.exists(ATTENDEE_FILE):
-        return pd.read_csv(ATTENDEE_FILE, dtype={'Badge ID': str})  # Ensure Badge ID is treated as a string
-    return pd.DataFrame(columns=['Badge ID', 'Name', 'Email', 'Check-in Time', 'Check-out Time'])
+BADGES_PER_ROW = 3
+BADGE_WIDTH_INCH = 2.3
+BADGE_HEIGHT_INCH = 3.4
 
-# Function to save data to CSV
-def save_data(df):
-    df.to_csv(ATTENDEE_FILE, index=False)
-
-# Load attendee data
-if 'attendees' not in st.session_state:
-    st.session_state['attendees'] = load_data()
-
-if 'page' not in st.session_state:
-    st.session_state['page'] = 'home'
-
-# Function to generate QR codes
-def generate_qr_code(badge_id):
-    qr = qrcode.QRCode(
-        version=1,
-        error_correction=qrcode.constants.ERROR_CORRECT_L,
-        box_size=10,
-        border=4,
-    )
-    qr.add_data(str(badge_id))  # Ensure Badge ID is stored as a string in the QR code
+def generate_qr_code_img(data):
+    qr = qrcode.QRCode(box_size=4, border=1)
+    qr.add_data(data)
     qr.make(fit=True)
-    img = qr.make_image(fill='black', back_color='white')
+    img = qr.make_image(fill_color="black", back_color="white")
+    return img
+
+def create_badge_pdf(attendees):
     buffer = BytesIO()
-    img.save(buffer, format="PNG")
-    return buffer.getvalue()
+    c = canvas.Canvas(buffer, pagesize=letter)
+    width, height = letter
 
-# Function to scan QR code using OpenCV
-def scan_qr_code(uploaded_file):
-    try:
-        image = Image.open(uploaded_file)
-        image = cv2.cvtColor(np.array(image), cv2.COLOR_RGB2BGR)
-        detector = cv2.QRCodeDetector()
-        data, _, _ = detector.detectAndDecode(image)
-        return str(data).strip() if data else None  # Ensure output is a string
-    except Exception as e:
-        return None
+    x_margin = 0.5 * inch
+    y_margin = 0.5 * inch
+    x_spacing = (width - 2 * x_margin - BADGES_PER_ROW * BADGE_WIDTH_INCH * inch) / (BADGES_PER_ROW - 1)
+    y_spacing = 0.3 * inch
 
-# Navigation function
-def switch_page(page_name):
-    st.session_state['page'] = page_name
+    x_positions = [x_margin + i * (BADGE_WIDTH_INCH * inch + x_spacing) for i in range(BADGES_PER_ROW)]
+    y_position = height - y_margin - BADGE_HEIGHT_INCH * inch
 
-# Home Page
-if st.session_state['page'] == 'home':
-    st.title("📋 Conference Check-In System")
-    
-    st.subheader("Check-In Options")
-    uploaded_file = st.file_uploader("📷 Scan QR Code", type=["png", "jpg", "jpeg"])
-    if uploaded_file is not None:
-        badge_id = scan_qr_code(uploaded_file)
-        if badge_id:
-            df = st.session_state['attendees']
-            if badge_id in df['Badge ID'].values:
-                attendee_index = df[df['Badge ID'] == badge_id].index[0]
-                current_time = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                if pd.isnull(df.at[attendee_index, 'Check-in Time']):
-                    df.at[attendee_index, 'Check-in Time'] = current_time
-                    st.success(f"Checked in {df.at[attendee_index, 'Name']} at {current_time}")
-                else:
-                    df.at[attendee_index, 'Check-out Time'] = current_time
-                    st.success(f"Checked out {df.at[attendee_index, 'Name']} at {current_time}")
-                save_data(df)
-            else:
-                st.warning("Badge ID not found. Use manual check-in if needed.")
-        else:
-            st.warning("No QR code detected. Please try another image.")
-    
-    badge_input = st.text_input("🔢 Enter Badge Number")
-    if st.button("Check-In/Out by Badge ID"):
-        df = st.session_state['attendees']
-        if badge_input in df['Badge ID'].values:
-            attendee_index = df[df['Badge ID'] == badge_input].index[0]
-            current_time = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-            if pd.isnull(df.at[attendee_index, 'Check-in Time']):
-                df.at[attendee_index, 'Check-in Time'] = current_time
-                st.success(f"Checked in {df.at[attendee_index, 'Name']} at {current_time}")
-            else:
-                df.at[attendee_index, 'Check-out Time'] = current_time
-                st.success(f"Checked out {df.at[attendee_index, 'Name']} at {current_time}")
-            save_data(df)
-        else:
-            st.warning("Badge ID not found. Use manual check-in if needed.")
-    
-    st.subheader("Manual Check-In/Out")
-    if st.session_state['attendees'].empty:
-        st.warning("No attendees found. Please register attendees first.")
-    else:
-        selected_attendee = st.selectbox("Select Attendee", st.session_state['attendees']['Name'].tolist())
-        if st.button("Manually Check-In"):
-            attendee_index = st.session_state['attendees'][st.session_state['attendees']['Name'] == selected_attendee].index[0]
-            current_time = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-            st.session_state['attendees'].at[attendee_index, 'Check-in Time'] = current_time
-            save_data(st.session_state['attendees'])
-            st.success(f"Manually checked in {selected_attendee} at {current_time}")
-        if st.button("Manually Check-Out"):
-            attendee_index = st.session_state['attendees'][st.session_state['attendees']['Name'] == selected_attendee].index[0]
-            current_time = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-            st.session_state['attendees'].at[attendee_index, 'Check-out Time'] = current_time
-            save_data(st.session_state['attendees'])
-            st.success(f"Manually checked out {selected_attendee} at {current_time}")
-    
-    if st.button("🔐 Admin Area"):
-        switch_page('admin')
+    badge_idx = 0
 
-# Admin Page
-elif st.session_state['page'] == 'admin':
-    st.title("🔐 Admin - Attendance Dashboard")
-    st.dataframe(st.session_state['attendees'])
-    csv = st.session_state['attendees'].to_csv(index=False).encode('utf-8')
-    st.download_button(label="📥 Download Attendance Data", data=csv, file_name="attendance_data.csv", mime="text/csv")
-    if st.button("➕ Register Attendee"):
-        switch_page('register_attendee')
-    if st.button("⬅ Back to Home"):
-        switch_page('home')
+    for attendee in attendees:
+        col = badge_idx % BADGES_PER_ROW
+        if badge_idx > 0 and col == 0:
+            y_position -= BADGE_HEIGHT_INCH * inch + y_spacing
+            if y_position < 0:
+                c.showPage()
+                y_position = height - y_margin - BADGE_HEIGHT_INCH * inch
 
-# Register Attendee Page
-elif st.session_state['page'] == 'register_attendee':
-    st.title("➕ Register Attendee")
-    name = st.text_input("Attendee Name")
-    email = st.text_input("Attendee Email")
-    badge_id = st.text_input("Assign Badge ID")
-    if st.button("Register"):
-        if name and email and badge_id:
-            new_entry = pd.DataFrame([[badge_id, name, email, None, None]], columns=st.session_state['attendees'].columns)
-            st.session_state['attendees'] = pd.concat([st.session_state['attendees'], new_entry], ignore_index=True)
-            save_data(st.session_state['attendees'])
-            st.success(f"Registered {name} with Badge ID {badge_id}")
-            st.image(generate_qr_code(badge_id), caption=f"QR Code for {name}")
-        else:
-            st.warning("Please enter name, email, and badge ID.")
-    if st.button("⬅ Back to Admin"):
-        switch_page('admin')
+        # Draw border
+        c.rect(x_positions[col], y_position, BADGE_WIDTH_INCH * inch, BADGE_HEIGHT_INCH * inch)
+
+        # Draw text
+        c.setFont("Helvetica-Bold", 14)
+        c.drawString(x_positions[col] + 0.1*inch, y_position + BADGE_HEIGHT_INCH*inch - 0.4*inch, attendee['name'])
+
+        c.setFont("Helvetica", 10)
+        c.drawString(x_positions[col] + 0.1*inch, y_position + BADGE_HEIGHT_INCH*inch - 0.7*inch, attendee['email'])
+        c.drawString(x_positions[col] + 0.1*inch, y_position + BADGE_HEIGHT_INCH*inch - 0.9*inch, f"Badge #: {attendee['badge_id']}")
+
+        # Generate QR code
+        qr_img = generate_qr_code_img(str(attendee["badge_id"]))
+        qr_buffer = BytesIO()
+        qr_img.save(qr_buffer, format="PNG")
+        qr_buffer.seek(0)
+        qr_reader = Image.open(qr_buffer)
+
+        # Draw QR code
+        qr_x = x_positions[col] + BADGE_WIDTH_INCH*inch/2 - 0.4*inch
+        qr_y = y_position + 0.2*inch
+        c.drawInlineImage(qr_reader, qr_x, qr_y, width=0.8*inch, height=0.8*inch)
+
+        badge_idx += 1
+
+    c.save()
+    buffer.seek(0)
+    return buffer
+
+# Load attendees
+attendees = get_all_attendees()
+
+if st.button("Generate PDF of Badges"):
+    pdf_buffer = create_badge_pdf(attendees)
+    st.download_button(
+        label="📄 Download Badges PDF",
+        data=pdf_buffer,
+        file_name="conference_badges.pdf",
+        mime="application/pdf"
+    )
